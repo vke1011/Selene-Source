@@ -129,6 +129,10 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   // 播放器的 GlobalKey，用于保持播放器状态
   final GlobalKey _playerKey = GlobalKey();
+  int _loadGeneration = 0;
+
+  bool _isActiveLoad(int generation) =>
+      mounted && generation == _loadGeneration;
 
   @override
   void initState() {
@@ -191,6 +195,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void initVideoData() async {
+    final loadGeneration = ++_loadGeneration;
+
     if (widget.source == null &&
         widget.id == null &&
         widget.title.isEmpty &&
@@ -201,6 +207,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     // 读取优选测速配置
     final preferSpeedTest = await UserDataService.getPreferSpeedTest();
+    if (!_isActiveLoad(loadGeneration)) return;
 
     if (!preferSpeedTest ||
         (widget.source != null &&
@@ -221,11 +228,14 @@ class _PlayerScreenState extends State<PlayerScreen>
     // 执行查询
     allSources = await fetchSourcesData(
         (searchTitle.isNotEmpty) ? searchTitle : videoTitle);
+    if (!_isActiveLoad(loadGeneration)) return;
+
     if (currentSource.isNotEmpty &&
         currentID.isNotEmpty &&
         !allSources.any((source) =>
             source.source == currentSource && source.id == currentID)) {
       allSources = await fetchSourceDetail(currentSource, currentID);
+      if (!_isActiveLoad(loadGeneration)) return;
     }
     if (allSources.isEmpty) {
       showError('未找到匹配结果');
@@ -251,6 +261,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       updateLoadingProgress(0.66);
       updateLoadingEmoji('⚡');
       currentDetail = await preferBestSource();
+      if (!_isActiveLoad(loadGeneration)) return;
     }
     setInfosByDetail(currentDetail!);
 
@@ -262,6 +273,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     int playTime = 0;
     if (mounted) {
       final allPlayRecords = await PageCacheService().getPlayRecords(context);
+      if (!_isActiveLoad(loadGeneration)) return;
       // 查找是否有当前视频的播放记录
       if (allPlayRecords.success && allPlayRecords.data != null) {
         final matchingRecords = allPlayRecords.data!.where((record) =>
@@ -287,7 +299,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     // 延时 1 秒后隐藏加载界面
     Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
+      if (_isActiveLoad(loadGeneration)) {
         setState(() {
           _isLoading = false;
         });
@@ -295,6 +307,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     });
 
     // 设置播放
+    if (!_isActiveLoad(loadGeneration)) return;
     startPlay(playEpisodeIndex, playTime);
   }
 
@@ -357,6 +370,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     // 延迟调用自动滚动，确保UI已更新
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _scrollToCurrentEpisode();
       _scrollToCurrentSource();
     });
@@ -370,12 +384,14 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
 
     try {
+      final requestDoubanId = videoDoubanID.toString();
       final response = await DoubanService.getDoubanDetails(
         context,
-        doubanId: videoDoubanID.toString(),
+        doubanId: requestDoubanId,
       );
+      if (!mounted || videoDoubanID.toString() != requestDoubanId) return;
 
-      if (response.success && response.data != null && mounted) {
+      if (response.success && response.data != null) {
         setState(() {
           doubanDetails = response.data;
           // 如果当前视频描述为空或是"暂无简介"，使用豆瓣的描述
@@ -698,6 +714,8 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   /// 处理视频播放器 ready 事件
   void _onVideoPlayerReady() {
+    if (!mounted) return;
+
     // 视频播放器准备就绪时的处理逻辑
     debugPrint('Video player is ready!');
 
@@ -717,7 +735,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       final tmpStartAt = _resumeStartAt;
       _resumeStartAt = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (tmpStartAt != null) {
+        if (mounted && tmpStartAt != null) {
           seekToProgress(tmpStartAt);
         }
       });
@@ -829,6 +847,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       // 取消收藏
       final result =
           await cacheService.removeFavorite(currentSource, currentID, context);
+      if (!mounted) return;
       if (result.success) {
         setState(() {
           _isFavorite = false;
@@ -847,6 +866,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
       final result = await cacheService.addFavorite(
           currentSource, currentID, favoriteData, context);
+      if (!mounted) return;
       if (result.success) {
         setState(() {
           _isFavorite = true;
@@ -874,7 +894,11 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   /// 执行滚动到当前源的具体逻辑
   void _performScrollToCurrentSource() {
-    if (currentDetail == null || !_sourcesScrollController.hasClients) return;
+    if (!mounted ||
+        currentDetail == null ||
+        !_sourcesScrollController.hasClients) {
+      return;
+    }
 
     // 找到当前源在allSources中的索引
     final currentSourceIndex = allSources.indexWhere(
@@ -921,6 +945,8 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   /// 切换视频源
   void _switchSource(SearchResult newSource) async {
+    if (!mounted) return;
+
     // 显示切换加载蒙版
     setState(() {
       _showSwitchLoadingOverlay = true;
@@ -950,9 +976,11 @@ class _PlayerScreenState extends State<PlayerScreen>
         (oldSource != newSource.source || oldID != newSource.id)) {
       try {
         await PageCacheService().deletePlayRecord(oldSource, oldID, context);
+        if (!mounted) return;
         debugPrint('删除旧源播放记录: $oldSource+$oldID');
       } catch (e) {
         debugPrint('删除旧源播放记录失败: $e');
+        if (!mounted) return;
       }
     }
 
@@ -967,6 +995,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     // 延迟滚动到当前源，等待UI更新完成
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _scrollToCurrentSource();
     });
   }
@@ -981,7 +1010,11 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   /// 执行滚动到当前集数的具体逻辑
   void _performScrollToCurrentEpisode() {
-    if (currentDetail == null || !_episodesScrollController.hasClients) return;
+    if (!mounted ||
+        currentDetail == null ||
+        !_episodesScrollController.hasClients) {
+      return;
+    }
 
     // 动态计算按钮宽度
     // 在平板横屏模式下，需要考虑左侧区域只占65%的宽度
