@@ -97,6 +97,7 @@ class _MovieScreenState extends State<MovieScreen> {
   final List<SelectorOption> _movieYearOptions = const [
     SelectorOption(label: '全部', value: 'all'),
     SelectorOption(label: '2020年代', value: '2020s'),
+    SelectorOption(label: '2026', value: '2026'),
     SelectorOption(label: '2025', value: '2025'),
     SelectorOption(label: '2024', value: '2024'),
     SelectorOption(label: '2023', value: '2023'),
